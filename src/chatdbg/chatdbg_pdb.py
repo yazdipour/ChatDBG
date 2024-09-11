@@ -4,7 +4,6 @@ import atexit
 import inspect
 import linecache
 import os
-import pdb
 import pydoc
 import sys
 import textwrap
@@ -14,6 +13,9 @@ from pathlib import Path
 
 import IPython
 
+import pdb
+
+from chatdbg.pdb_util.sandbox import sandbox_eval
 from chatdbg.util.prompts import (
     build_followup_prompt,
     build_initial_prompt,
@@ -134,10 +136,10 @@ class ChatDBG(ChatDBGSuper):
     def _is_user_file(self, file_name):
         if file_name.endswith(".pyx"):
             return False
-        elif file_name == "<string>" or file_name.startswith('<frozen'):
+        elif file_name == "<string>" or file_name.startswith("<frozen"):
             # synthetic entry point or frozen modules
             return False
-        elif file_name.startswith('<ipython'):
+        elif file_name.startswith("<ipython"):
             # stdin from ipython session
             return True
 
@@ -277,6 +279,36 @@ class ChatDBG(ChatDBGSuper):
         if ChatDBGSuper != pdb.Pdb:
             line = super(IPython.core.debugger.Pdb, self).precmd(line)
         return line
+
+    def _getval(self, arg):
+        """
+        Sandbox for evaluating expressions from the LLM.
+        """
+        try:
+            if chatdbg_config.unsafe:
+                return super._getval(arg)
+            else:   
+                return sandbox_eval(arg, self.curframe.f_globals, self.curframe_locals)
+        except NameError as e:
+            self.error(f"NameError: {e}")
+            return None
+        except ImportError as e:
+            self.error(f"ImportError: {e}")
+            return None
+
+    def _getval_except(self, arg, frame=None):
+        """
+        Sandbox in case an LLM ever tries to use the display features...
+        """
+        try:
+            if frame is None:
+                return sandbox_eval(arg, self.curframe.f_globals, self.curframe_locals)
+            else:
+                return sandbox_eval(arg, frame.f_globals, frame.f_locals)
+        except:
+            exc_info = sys.exc_info()[:2]
+            err = traceback.format_exception_only(*exc_info)[-1].strip()
+            return "** raised %s **" % err
 
     def do_hist(self, arg):
         """hist

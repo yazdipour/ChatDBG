@@ -13,6 +13,7 @@ from chatdbg.native_util.stacks import (
     _SkippedFramesEntry,
 )
 from chatdbg.util.config import chatdbg_config
+from chatdbg.native_util.safety import command_is_safe
 
 # The file produced by the panic handler if the Rust program is using the chatdbg crate.
 RUST_PANIC_LOG_FILENAME = "panic_log.txt"
@@ -59,23 +60,6 @@ def chat(
         result.SetError(str(e))
 
 
-# @lldb.command("test_prompt")
-# def test_prompt(
-#     debugger: lldb.SBDebugger,
-#     command: str,
-#     result: lldb.SBCommandReturnObject,
-#     internal_dict: dict,
-# ):
-#     try:
-#         # new dialog object, so no history...
-#         dialog = LLDBDialog(PROMPT, debugger)
-#         result.AppendMessage(dialog.initial_prompt_instructions())
-#         result.AppendMessage("-" * 80)
-#         result.AppendMessage(dialog.build_prompt(command, False))
-#     except Exception as e:
-#         result.SetError(str(e))
-
-
 @lldb.command("config")
 def config(
     debugger: lldb.SBDebugger,
@@ -86,9 +70,6 @@ def config(
     args = command.split()
     message = chatdbg_config.parse_only_user_flags(args)
     result.AppendMessage(message)
-
-
-####
 
 
 class LLDBDialog(DBGDialog):
@@ -309,8 +290,8 @@ class LLDBDialog(DBGDialog):
         in followup prompts.
         """
         return None
-    
-    def llm_debug(self, command: str) -> str:
+
+    def llm_debug(self, command: str):
         """
         {
             "name": "debug",
@@ -327,5 +308,6 @@ class LLDBDialog(DBGDialog):
             }
         }
         """
+        if not chatdbg_config.unsafe and not command_is_safe(command):
+            return command, f"Command `{command}` is not allowed."
         return command, self._run_one_command(command)
-
